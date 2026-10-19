@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>txt文件繁简转换</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --panel:#fff; --line:#dce2ec; --text:#1d2635;
+    --muted:#6b7688; --accent:#3b6ef5; --accent-h:#2f5cd8; --danger:#d93a3a;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column;
+  }
+  body.dragover{outline:3px dashed var(--accent); outline-offset:-10px;}
+
+  header{padding:18px 22px 10px;}
+  header h1{margin:0; font-size:20px; letter-spacing:.5px;}
+  header p{margin:6px 0 0; font-size:13px; color:var(--muted);}
+
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    padding:10px 22px;
+  }
+  .filename-bar{
+    display:flex; align-items:center; gap:8px;
+    padding: 0 22px 14px;
+    width: 100%;
+  }
+  .filename-bar label {
+    font-size: 14px; color: var(--muted); white-space: nowrap;
+  }
+  select,button,input[type="text"]{
+    font:inherit; font-size:14px; border-radius:8px; border:1px solid var(--line);
+    background:var(--panel); color:var(--text); padding:7px 12px; outline:none;
+  }
+  input[type="text"]{ flex: 1; transition:.15s; min-width: 0;}
+  input[type="text"]:focus{ border-color: var(--accent); }
+  
+  button{cursor:pointer; transition:.15s; white-space: nowrap;}
+  button:hover{border-color:var(--accent); color:var(--accent);}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+  button.primary:hover{background:var(--accent-h); color:#fff;}
+  .spacer{flex:1;}
+  label.chk{
+    display:inline-flex; align-items:center; gap:6px; font-size:14px; color:var(--muted);
+    user-select:none; cursor:pointer;
+  }
+
+  main{
+    flex:1; display:flex; gap:14px; padding:0 22px 16px; min-height:0;
+  }
+  .pane{
+    flex:1; display:flex; flex-direction:column; min-width:0; min-height:0;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+    box-shadow:0 1px 3px rgba(20,30,60,.05);
+  }
+  .pane-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:9px 14px; font-size:13px; font-weight:600; color:var(--muted);
+    border-bottom:1px solid var(--line); background:#fafbfe;
+  }
+  .pane-head .stat{font-weight:400; font-variant-numeric:tabular-nums;}
+  textarea{
+    flex:1; width:100%; border:0; outline:none; resize:none; padding:14px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"PingFang SC",monospace;
+    font-size:14px; line-height:1.75; color:var(--text); background:transparent;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  textarea::placeholder{color:#a7b0c0;}
+  textarea[readonly]{background-color: #fafbfe; color: #556;}
+
+  #status{
+    padding:0 22px 14px; font-size:13px; color:var(--muted); min-height:20px;
+  }
+  #status.err{color:var(--danger);}
+
+  @media (max-width:760px){
+    main{flex-direction:column;}
+    .pane{min-height:200px;}
+    .toolbar { padding-bottom: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>繁简转换</h1>
+  <p>纯浏览器本地运行 · 界面仅预览前 1000 字防卡顿</p>
+</header>
+
+<div class="toolbar">
+  <select id="dir">
+    <option value="t2s">繁体 → 简体</option>
+    <option value="s2t">简体 → 繁体</option>
+  </select>
+  <label class="chk"><input type="checkbox" id="auto" checked> 自动转换</label>
+  <button id="pick">选择文件</button>
+  <input type="file" id="file" accept=".txt,text/plain" hidden>
+  <button id="convert" class="primary">转换</button>
+  <div class="spacer"></div>
+  <button id="copy">复制全文</button>
+  <button id="clear">清空</button>
+</div>
+
+<div class="filename-bar">
+  <label>目标文件名：</label>
+  <input type="text" id="filename" value="默认.txt" title="下载文件名">
+  <button id="download" class="primary">下载文件</button>
+</div>
+
+<main>
+  <section class="pane">
+    <div class="pane-head"><span>输入</span><span class="stat" id="inStat">0 字</span></div>
+    <textarea id="input" placeholder="在这里粘贴文本，或把 .txt 文件拖进页面…"></textarea>
+  </section>
+  <section class="pane">
+    <div class="pane-head"><span>输出</span><span class="stat" id="outStat">0 字</span></div>
+    <textarea id="output" readonly placeholder="转换结果会出现在这里"></textarea>
+  </section>
+</main>
+
+<div id="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+<script>
+(function () {
+  const $ = s => document.querySelector(s);
+  const input   = $('#input');
+  const output  = $('#output');
+  const filenameInput = $('#filename');
+  const inStat  = $('#inStat');
+  const outStat = $('#outStat');
+  const statusEl= $('#status');
+
+  const MAX_PREVIEW = 1000; 
+  
+  let fullInputText = '';   
+  let fullOutputText = '';  
+  let timer = null;
+  const cache = {}; 
+
+  function setStatus(msg, isErr) {
+    statusEl.textContent = msg || '';
+    statusEl.classList.toggle('err', !!isErr);
+  }
+
+  // 兼容 file:// 协议的复制方案
+  function copyTextToClipboard(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length); // 适配手机
+    let success = false;
+    try {
+      success = document.execCommand('copy');
+    } catch (e) {}
+    document.body.removeChild(ta);
+    return success;
+  }
+
+  function getConverter() {
+    if (typeof OpenCC === 'undefined') {
+      throw new Error('OpenCC 库加载失败：请检查网络能否访问 cdn.jsdelivr.net');
+    }
+    const key = $('#dir').value;
+    if (!cache[key]) {
+      const t2s = key === 't2s';
+      cache[key] = OpenCC.Converter({ from: t2s ? 'tw' : 'cn', to: t2s ? 'cn' : 'tw' });
+    }
+    return cache[key];
+  }
+
+  function getPreviewText(text) {
+    if (text.length <= MAX_PREVIEW) return text;
+    return text.slice(0, MAX_PREVIEW) + `\n\n...[已截断预览，实际共 ${text.length.toLocaleString()} 字。请直接下载或复制获取完整内容]...`;
+  }
+
+  function updateStats() {
+    inStat.textContent  = fullInputText.length.toLocaleString() + ' 字';
+    outStat.textContent = fullOutputText.length.toLocaleString() + ' 字';
+  }
+
+  function convert() {
+    if (!fullInputText) {
+      fullOutputText = '';
+      output.value = '';
+      updateStats();
+      setStatus('');
+      return;
+    }
+    
+    setStatus('正在转换中，请稍候…');
+    
+    setTimeout(() => {
+      try {
+        const t0 = performance.now();
+        fullOutputText = getConverter()(fullInputText);
+        output.value = getPreviewText(fullOutputText); 
+        updateStats();
+        const ms = Math.round(performance.now() - t0);
+        setStatus(`转换完成，耗时 ${ms} ms`);
+      } catch (e) {
+        setStatus(e.message || String(e), true);
+      }
+    }, 50);
+  }
+
+  function scheduleConvert() {
+    updateStats();
+    if (!$('#auto').checked) return;
+    clearTimeout(timer);
+    timer = setTimeout(convert, input.value.length > 20000 ? 450 : 150);
+  }
+
+  input.addEventListener('input', () => {
+    if (input.readOnly) return;
+    fullInputText = input.value;
+    
+    if (fullInputText.length > MAX_PREVIEW) {
+      fullInputText = fullInputText.slice(0, MAX_PREVIEW);
+      input.value = fullInputText;
+      setStatus(`⚠️ 手动粘贴超过 ${MAX_PREVIEW} 字已被截断。若有大文件，请使用“选择文件”导入。`, true);
+    }
+    scheduleConvert();
+  });
+
+  function readFile(file) {
+    if (!file) return;
+    setStatus('正在读取 ' + file.name + ' …');
+    
+    let finalName = '默认.txt';
+    if (file.name && file.name.length > 5 && !file.name.includes('a968')) {
+      const dotIndex = file.name.lastIndexOf('.');
+      if (dotIndex > 0) {
+        const baseName = file.name.substring(0, dotIndex);
+        const ext = file.name.substring(dotIndex);
+        finalName = baseName + ext;
+      } else {
+        finalName = file.name + '.txt';
+      }
+    } else {
+      finalName = '默认_转换后.txt';
+    }
+    
+    filenameInput.value = finalName;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      fullInputText = String(reader.result || '');
+      input.value = getPreviewText(fullInputText);
+      
+      if (fullInputText.length > MAX_PREVIEW) {
+        input.readOnly = true;
+      }
+
+      updateStats();
+      
+      if ($('#auto').checked) {
+        convert();
+      } else {
+        setStatus(`已载入文件 (共 ${fullInputText.length.toLocaleString()} 字)，准备就绪`);
+      }
+    };
+    reader.onerror = () => setStatus('读取文件失败', true);
+    reader.readAsText(file, 'utf-8');
+  }
+
+  /* ---------- 事件绑定 ---------- */
+
+  $('#dir').addEventListener('change', () => { if ($('#auto').checked) convert(); });
+  $('#convert').addEventListener('click', convert);
+  $('#pick').addEventListener('click', () => $('#file').click());
+  
+  $('#file').addEventListener('change', e => {
+    readFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  $('#copy').addEventListener('click', () => {
+    if (!fullOutputText) { setStatus('没有可复制的内容'); return; }
+    const success = copyTextToClipboard(fullOutputText);
+    if (success) {
+      setStatus('完整内容已复制到剪贴板');
+    } else {
+      output.removeAttribute('readonly');
+      output.value = fullOutputText;
+      output.select();
+      document.execCommand('copy');
+      output.value = getPreviewText(fullOutputText);
+      output.setAttribute('readonly', '');
+      setStatus('完整内容已复制到剪贴板');
+    }
+  });
+
+  $('#download').addEventListener('click', () => {
+    if (!fullOutputText) { setStatus('没有可下载的内容'); return; }
+    
+    let finalName = filenameInput.value.trim() || 'tt.txt';
+    if (!finalName.toLowerCase().endsWith('.txt')) {
+        finalName += '.txt';
+        filenameInput.value = finalName;
+    }
+
+    // 提取不带 .txt 的主文件名，用于复制和提示
+    const nameForCopy = finalName.replace(/\.txt$/i, '');
+
+    // 复制不带后缀的名字，防止部分手机重命名时出现双后缀
+    const copied = copyTextToClipboard(nameForCopy);
+
+    if (copied) {
+      alert(`【下载提示】\n\n由于安卓系统的限制，下载大文件时浏览器必定会篡改文件名（变成乱码）。\n\n✅ 文件名「${nameForCopy}」已自动复制！\n\n下载完成后，请去文件管理器中找到该文件，长按重命名，直接粘贴即可（无需输入后缀名）。`);
+    } else {
+      alert(`【下载提示】\n\n由于安卓系统限制，下载大文件会变成乱码名。\n\n请记住您的目标文件名：${nameForCopy}\n下载完成后，请手动重命名。`);
+    }
+
+    const blob = new Blob([fullOutputText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = finalName; // 底层依然带 .txt 后缀确保文件类型
+    a.style.display = 'none';
+    
+    document.body.appendChild(a);
+    a.click();
+    
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 30000);
+  });
+
+  $('#clear').addEventListener('click', () => {
+    fullInputText = '';
+    fullOutputText = '';
+    input.value = '';
+    output.value = '';
+    input.readOnly = false;
+    filenameInput.value = 'tt.txt';
+    updateStats();
+    setStatus('');
+    input.focus();
+  });
+
+  /* ---------- 拖放文件 ---------- */
+
+  let dragDepth = 0;
+  document.addEventListener('dragenter', e => {
+    e.preventDefault(); dragDepth++; document.body.classList.add('dragover');
+  });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('dragleave', e => {
+    e.preventDefault();
+    if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragover'); }
+  });
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('dragover');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) readFile(f);
+  });
+
+  /* ---------- 初始化 ---------- */
+  updateStats();
+  if (typeof OpenCC === 'undefined') {
+    setStatus('OpenCC 库未加载成功，请检查网络后刷新页面。', true);
+  } else {
+    setStatus('准备就绪：支持大文件导入，界面仅预览前 1000 字。');
+  }
+})();
+</script>
+</body>
+</html>
