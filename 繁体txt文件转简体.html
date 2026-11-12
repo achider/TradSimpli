@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>txt文件繁简转换</title>
+<title>繁简转换 & 文本处理 (EPUB/TXT) · 在线版</title>
 <style>
   :root{
     --bg:#f4f6fb; --panel:#fff; --line:#dce2ec; --text:#1d2635;
     --muted:#6b7688; --accent:#3b6ef5; --accent-h:#2f5cd8; --danger:#d93a3a;
+    --success:#10b981; --warning:#f59e0b;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -15,6 +16,7 @@
     margin:0; background:var(--bg); color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
     display:flex; flex-direction:column;
+    overflow: hidden;
   }
   body.dragover{outline:3px dashed var(--accent); outline-offset:-10px;}
 
@@ -26,14 +28,55 @@
     display:flex; flex-wrap:wrap; gap:8px; align-items:center;
     padding:10px 22px;
   }
+  .options-toggle{
+    background: #fff; border: 1px solid var(--line); color: var(--text); padding: 7px 12px;
+    border-radius: 8px; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 4px;
+  }
+  .options-toggle:hover{ border-color: var(--accent); color: var(--accent); }
+  .options-toggle.active{ background: #eef2ff; border-color: var(--accent); color: var(--accent); }
+
+  .options-panel{
+    display: none; background: #fff; border-bottom: 1px solid var(--line);
+    padding: 16px 22px; box-shadow: inset 0 4px 6px -4px rgba(0,0,0,0.05);
+    max-height: 50vh; overflow-y: auto;
+  }
+  .options-panel.active{ display: block; }
+  .clean-grid{
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px;
+    margin-bottom: 12px;
+  }
+  .clean-group-title{
+    grid-column: 1 / -1; font-weight: 600; font-size: 13px; color: var(--accent);
+    margin-top: 5px; margin-bottom: 2px;
+  }
+  .chk-item{
+    display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text);
+    cursor: pointer; user-select: none;
+  }
+  .chk-item input[type="checkbox"]{ width: 15px; height: 15px; cursor: pointer; }
+
+  .advanced-rules { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 12px; }
+  .rule-group { margin-bottom: 10px; }
+  .rule-group label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .rule-group textarea {
+    width: 100%; height: 50px; font-family: monospace; font-size: 12px;
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px; resize: vertical;
+    background: #fafbfe; color: #333; outline: none;
+  }
+  .rule-group textarea:focus { border-color: var(--accent); }
+
+  .custom-ad-row{ display: flex; gap: 8px; margin-top: 5px; align-items: center;}
+  .custom-ad-row input{
+    flex: 1; padding: 6px 10px; font-size: 13px; border: 1px solid var(--line); border-radius: 6px; outline:none;
+  }
+
   .filename-bar{
     display:flex; align-items:center; gap:8px;
     padding: 0 22px 14px;
     width: 100%;
   }
-  .filename-bar label {
-    font-size: 14px; color: var(--muted); white-space: nowrap;
-  }
+  .filename-bar label { font-size: 14px; color: var(--muted); white-space: nowrap; }
+  
   select,button,input[type="text"]{
     font:inherit; font-size:14px; border-radius:8px; border:1px solid var(--line);
     background:var(--panel); color:var(--text); padding:7px 12px; outline:none;
@@ -46,7 +89,7 @@
   button.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
   button.primary:hover{background:var(--accent-h); color:#fff;}
   .spacer{flex:1;}
-  label.chk{
+  label.chk-main{
     display:inline-flex; align-items:center; gap:6px; font-size:14px; color:var(--muted);
     user-select:none; cursor:pointer;
   }
@@ -75,23 +118,32 @@
   textarea::placeholder{color:#a7b0c0;}
   textarea[readonly]{background-color: #fafbfe; color: #556;}
 
+  /* 底部悬浮 Toast */
   #status{
-    padding:0 22px 14px; font-size:13px; color:var(--muted); min-height:20px;
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: rgba(30, 41, 59, 0.9); color: #fff; padding: 10px 20px;
+    border-radius: 24px; font-size: 13px; pointer-events: none; opacity: 0;
+    transition: opacity 0.3s, transform 0.3s; z-index: 1000; max-width: 90%;
+    text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.15); backdrop-filter: blur(4px);
   }
-  #status.err{color:var(--danger);}
+  #status.show { opacity: 1; }
+  #status.err { background: var(--danger); }
 
   @media (max-width:760px){
     main{flex-direction:column;}
     .pane{min-height:200px;}
     .toolbar { padding-bottom: 0; }
+    .clean-grid{ grid-template-columns: 1fr 1fr; }
   }
 </style>
+<!-- 引入 JSZip 用于处理 EPUB 压缩包 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
 <header>
-  <h1>繁简转换</h1>
-  <p>纯浏览器本地运行 · 界面仅预览前 1000 字防卡顿</p>
+  <h1>繁简转换 & 文本处理</h1>
+  <p>支持 TXT 与 EPUB · 纯前端本地处理 · 预览上限 1000 字</p>
 </header>
 
 <div class="toolbar">
@@ -99,25 +151,67 @@
     <option value="t2s">繁体 → 简体</option>
     <option value="s2t">简体 → 繁体</option>
   </select>
-  <label class="chk"><input type="checkbox" id="auto" checked> 自动转换</label>
-  <button id="pick">选择文件</button>
-  <input type="file" id="file" accept=".txt,text/plain" hidden>
-  <button id="convert" class="primary">转换</button>
+  <label class="chk-main"><input type="checkbox" id="auto" checked> 自动处理</label>
+  <button id="pick">选择文件 (TXT/EPUB)</button>
+  <input type="file" id="file" accept=".txt,.epub" hidden>
+  
+  <button id="convert" class="primary">开始处理</button>
+  
+  <button id="toggleOpts" class="options-toggle">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    处理选项
+  </button>
+  
   <div class="spacer"></div>
   <button id="copy">复制全文</button>
   <button id="clear">清空</button>
 </div>
 
+<div class="options-panel" id="optionsPanel">
+  <div class="clean-grid">
+    <div class="clean-group-title">基础清理 (默认开启)</div>
+    <label class="chk-item"><input type="checkbox" id="cleanZeroWidth" checked> 去除零宽字符</label>
+    <label class="chk-item"><input type="checkbox" id="cleanTrailingSpace" checked> 清行首尾空格</label>
+    <label class="chk-item"><input type="checkbox" id="cleanEmptyLines" checked> 压缩连续空行</label>
+    <label class="chk-item"><input type="checkbox" id="cleanTags" checked> 移除 HTML 标签</label>
+
+    <div class="clean-group-title">排版改写</div>
+    <label class="chk-item"><input type="checkbox" id="cleanIndent"> 段首全角缩进</label>
+    <label class="chk-item"><input type="checkbox" id="cleanPunctuation"> 规范标点符号</label>
+    <label class="chk-item"><input type="checkbox" id="cleanQuotes"> 转中文弯引号</label>
+    <label class="chk-item"><input type="checkbox" id="cleanBracketSpaces"> 去括号内空格</label>
+  </div>
+
+  <div class="advanced-rules">
+    <div class="clean-group-title" style="color:var(--muted);">高级正则 (仅针对 TXT 文本)</div>
+    <div class="rule-group">
+      <label>章节标题识别 (前后加空行)</label>
+      <textarea id="regChapter"></textarea>
+    </div>
+    <div class="rule-group">
+      <label>卷标题识别 (前后加空行)</label>
+      <textarea id="regVolume"></textarea>
+    </div>
+    <div class="rule-group">
+      <label>广告 / 水印过滤 (每行一条，错误自动跳过)</label>
+      <textarea id="regAds"></textarea>
+    </div>
+    <div class="custom-ad-row">
+      <input type="text" id="customAdInput" placeholder="附加包含过滤词（如：请记住本站）">
+    </div>
+  </div>
+</div>
+
 <div class="filename-bar">
   <label>目标文件名：</label>
-  <input type="text" id="filename" value="默认.txt" title="下载文件名">
+  <input type="text" id="filename" value="tt.txt" title="下载文件名">
   <button id="download" class="primary">下载文件</button>
 </div>
 
 <main>
   <section class="pane">
     <div class="pane-head"><span>输入</span><span class="stat" id="inStat">0 字</span></div>
-    <textarea id="input" placeholder="在这里粘贴文本，或把 .txt 文件拖进页面…"></textarea>
+    <textarea id="input" placeholder="粘贴文本，或将 .txt / .epub 文件拖入页面…"></textarea>
   </section>
   <section class="pane">
     <div class="pane-head"><span>输出</span><span class="stat" id="outStat">0 字</span></div>
@@ -125,9 +219,8 @@
   </section>
 </main>
 
-<div id="status"></div>
+<div id="status">正在加载词库引擎，请稍候…</div>
 
-<script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
 <script>
 (function () {
   const $ = s => document.querySelector(s);
@@ -137,41 +230,257 @@
   const inStat  = $('#inStat');
   const outStat = $('#outStat');
   const statusEl= $('#status');
+  const optionsPanel = $('#optionsPanel');
+  const toggleOptsBtn = $('#toggleOpts');
 
   const MAX_PREVIEW = 1000; 
-  
   let fullInputText = '';   
   let fullOutputText = '';  
   let timer = null;
+  let optTimer = null;
+  let statusTimer = null;
   const cache = {}; 
+  let isEngineReady = false;
+  
+  // EPUB 模式状态
+  let isEpubMode = false;
+  let epubZipObj = null; // 原始 EPUB 的 JSZip 实例
 
-  function setStatus(msg, isErr) {
-    statusEl.textContent = msg || '';
+  const DEFAULT_CHAPTER_REG = `^[\\s　]*(第[\\s　]*[零一二三四五六七八九十百千万两\\d]+[\\s　]*[章回节集].{0,50}|序[章言]|楔[\\s　]*子.{0,30}|引[\\s　]*子.{0,30}|前[\\s　]*言.{0,30}|后[\\s　]*记.{0,30}|尾[\\s　]*声.{0,30}|番外[^\\n]{0,50}|Chapter[\\s　]+([\\dIVXLCM]+|One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty)[^\\n]{0,50})[\\s　]*$`;
+  const DEFAULT_VOLUME_REG = `^[\\s　]*(第[零一二三四五六七八九十百千万两\\d]+[卷篇部].{0,50}|卷[零一二三四五六七八九十百千\\d]+[\\s　：:].{0,50}|(Volume|Book|VOL\\.?|Part|PART)[\\s　]+[\\dIVXLCM]+[^\\n]{0,50})[\\s　]*$`;
+  const DEFAULT_ADS_REG = `^https?:\\/\\/\\S+$\n^www\\.\\S+$\n^.{0,20}(本章完|未完待续|本章未完|完结撒花|完结感言)[\\s　]*$\n^.{0,40}(笔趣阁|起点中文|纵横中文|17K小说|逐浪小说|biquge|qidian|po18|顶点小说|思路客|新笔趣|无错小说|乐文小说)\\S{0,30}$`;
+
+  $('#regChapter').value = DEFAULT_CHAPTER_REG;
+  $('#regVolume').value = DEFAULT_VOLUME_REG;
+  $('#regAds').value = DEFAULT_ADS_REG;
+
+  function setStatus(msg, isErr, persistent = false) {
+    clearTimeout(statusTimer);
+    if (!msg) { statusEl.classList.remove('show'); return; }
+    statusEl.textContent = msg;
     statusEl.classList.toggle('err', !!isErr);
+    statusEl.classList.add('show');
+    if (!persistent) {
+      statusTimer = setTimeout(() => { statusEl.classList.remove('show'); }, isErr ? 4000 : 2000);
+    }
   }
 
-  // 兼容 file:// 协议的复制方案
   function copyTextToClipboard(text) {
     const ta = document.createElement('textarea');
     ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    ta.setSelectionRange(0, ta.value.length); // 适配手机
-    let success = false;
+    ta.style.position = 'fixed'; ta.style.opacity = '0'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, ta.value.length); 
+    let success = false; try { success = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta); return success;
+  }
+
+  function loadOpenCCLib(callback) {
+    const cdns = [
+      'https://cdn.bootcdn.net/ajax/libs/opencc-js/1.0.5/full.min.js',
+      'https://lib.baomitu.com/opencc-js/1.0.5/full.min.js',
+      'https://unpkg.com/opencc-js@1.0.5/dist/umd/full.js',
+      'https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js'
+    ];
+    let idx = 0;
+    function tryNext() {
+      if (idx >= cdns.length) { callback(new Error('OpenCC 词库加载失败，请检查网络后刷新重试。')); return; }
+      const url = cdns[idx];
+      setStatus(`正在加载词库节点(${idx + 1})…`, false, true);
+      const script = document.createElement('script');
+      script.src = url;
+      script.onload = () => { if (typeof OpenCC !== 'undefined') callback(null); else { idx++; tryNext(); } };
+      script.onerror = () => { idx++; tryNext(); };
+      document.head.appendChild(script);
+    }
+    tryNext();
+  }
+
+  function processText() {
+    if (!isEngineReady) { setStatus('请等待词库加载完毕再进行操作。', true); return; }
+    
+    if (isEpubMode) {
+      if (!epubZipObj) { setStatus('EPUB 未加载', true); return; }
+      setStatus('正在解析并转换 EPUB，请稍候…', false, true);
+      setTimeout(processEpub, 50);
+    } else {
+      if (!fullInputText) { fullOutputText = ''; output.value = ''; updateStats(); setStatus(''); return; }
+      setStatus('正在处理中…', false, true);
+      setTimeout(processTxt, 50);
+    }
+  }
+
+  function processTxt() {
     try {
-      success = document.execCommand('copy');
-    } catch (e) {}
-    document.body.removeChild(ta);
-    return success;
+      const t0 = performance.now();
+      let text = getConverter()(fullInputText);
+      fullOutputText = cleanText(text);
+      
+      output.value = getPreviewText(fullOutputText); 
+      updateStats();
+      
+      const ms = Math.round(performance.now() - t0);
+      setStatus(`处理完成，耗时 ${ms} ms`);
+    } catch (e) {
+      setStatus(e.message || String(e), true);
+    }
+  }
+
+  async function processEpub() {
+    try {
+      const t0 = performance.now();
+      const newZip = new JSZip(); 
+
+      // 必须首先添加无压缩的 mimetype
+      newZip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+
+      const files = Object.values(epubZipObj.files);
+      let processedPreview = '';
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.dir || file.name === 'mimetype') continue;
+
+        if (file.name.endsWith('.xhtml') || file.name.endsWith('.html') || file.name.endsWith('.htm')) {
+          const content = await file.async('string');
+          const parser = new DOMParser();
+          let doc = parser.parseFromString(content, 'application/xhtml+xml');
+          
+          if (doc.querySelector('parsererror')) {
+             doc = parser.parseFromString(content, 'text/html');
+             if (doc.querySelector('parsererror')) {
+                newZip.file(file.name, await file.async('uint8array'));
+                continue;
+             }
+          }
+
+          const walker = doc.createTreeWalker(doc.body || doc.documentElement, NodeFilter.SHOW_TEXT, null, false);
+          let node;
+          while (node = walker.nextNode()) {
+            const originalText = node.nodeValue;
+            if (originalText.trim().length > 0) {
+              let converted = getConverter()(originalText);
+              converted = cleanEpubText(converted); 
+              node.nodeValue = converted;
+              
+              if (processedPreview.length < 500) processedPreview += converted;
+            }
+          }
+
+          const serializer = new XMLSerializer();
+          let newHtml = serializer.serializeToString(doc);
+          if (!newHtml.includes('xmlns="http://www.w3.org/1999/xhtml"')) {
+            newHtml = newHtml.replace('<html', '<html xmlns="http://www.w3.org/1999/xhtml"');
+          }
+          newZip.file(file.name, newHtml);
+        } else {
+          newZip.file(file.name, await file.async('uint8array'));
+        }
+      }
+
+      fullOutputText = newZip; 
+      output.value = processedPreview + '\n\n...[EPUB 已处理完毕，此处仅展示部分文本预览]...';
+      updateStats();
+      
+      const ms = Math.round(performance.now() - t0);
+      setStatus(`EPUB 处理完成，耗时 ${ms} ms，请点击下载`);
+    } catch (e) {
+      console.error(e);
+      setStatus('处理 EPUB 失败：' + (e.message || e), true);
+    }
+  }
+
+  function cleanText(text) {
+    if (!text) return '';
+    if ($('#cleanZeroWidth').checked) text = text.replace(/[\u200B-\u200D\uFEFF\u2060]/g, '');
+    if ($('#cleanTrailingSpace').checked) text = text.replace(/^[ \t]+|[ \t]+$/gm, '');
+    if ($('#cleanEmptyLines').checked) text = text.replace(/\n{3,}/g, '\n\n');
+    if ($('#cleanTags').checked) text = text.replace(/<[^>]+>/g, '');
+
+    const adsRegStr = $('#regAds').value.trim();
+    const customAd = $('#customAdInput').value.trim();
+    if (adsRegStr || customAd) {
+      let validRegexes = [];
+      if (adsRegStr) {
+        const lines = adsRegStr.split('\n');
+        for (let line of lines) {
+          line = line.trim(); if (!line) continue;
+          try { validRegexes.push(new RegExp(line)); } catch (e) {}
+        }
+      }
+      const lines = text.split('\n');
+      const filteredLines = lines.filter(line => {
+        if (customAd && line.includes(customAd)) return false;
+        for (let reg of validRegexes) if (reg.test(line)) return false;
+        return true;
+      });
+      text = filteredLines.join('\n');
+    }
+
+    const chapterRegStr = $('#regChapter').value.trim();
+    const volumeRegStr = $('#regVolume').value.trim();
+    
+    if (chapterRegStr) {
+      let chapterReg = null;
+      try { chapterReg = new RegExp(chapterRegStr); } catch(e) {}
+      if (chapterReg) {
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          if (chapterReg.test(line)) {
+            if (i > 0 && lines[i-1].trim() !== '') lines[i] = '\n' + lines[i];
+            if (i < lines.length - 1 && lines[i+1].trim() !== '') lines[i] = lines[i] + '\n';
+          }
+        }
+        text = lines.join('\n');
+      }
+    }
+    if (volumeRegStr) {
+      let volReg = null;
+      try { volReg = new RegExp(volumeRegStr); } catch(e) {}
+      if (volReg) {
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (volReg.test(line)) {
+            if (i > 0 && lines[i-1].trim() !== '') lines[i] = '\n\n' + lines[i];
+            if (i < lines.length - 1 && lines[i+1].trim() !== '') lines[i] = lines[i] + '\n';
+          }
+        }
+        text = lines.join('\n');
+      }
+    }
+    text = text.replace(/\n{3,}/g, '\n\n');
+
+    if ($('#cleanQuotes').checked) text = text.replace(/"([^"]*)"/g, '“$1”');
+    if ($('#cleanPunctuation').checked) {
+      text = text.replace(/\.\.\./g, '……').replace(/,/g, '，').replace(/;/g, '；')
+                 .replace(/:/g, '：').replace(/\?/g, '？').replace(/!/g, '！')
+                 .replace(/\(/g, '（').replace(/\)/g, '）');
+    }
+    if ($('#cleanBracketSpaces').checked) text = text.replace(/([（(])\s+/g, '$1').replace(/\s+([）)])/g, '$1');
+    if ($('#cleanIndent').checked) {
+      text = text.split('\n').map(line => {
+        if (!line.trim()) return line;
+        return '　　' + line.replace(/^[ \u3000\t]+/, '');
+      }).join('\n');
+    }
+    return text;
+  }
+
+  function cleanEpubText(text) {
+    if (!text) return '';
+    if ($('#cleanZeroWidth').checked) text = text.replace(/[\u200B-\u200D\uFEFF\u2060]/g, '');
+    if ($('#cleanQuotes').checked) text = text.replace(/"([^"]*)"/g, '“$1”');
+    if ($('#cleanPunctuation').checked) {
+      text = text.replace(/\.\.\./g, '……').replace(/,/g, '，').replace(/;/g, '；')
+                 .replace(/:/g, '：').replace(/\?/g, '？').replace(/!/g, '！')
+                 .replace(/\(/g, '（').replace(/\)/g, '）');
+    }
+    return text;
   }
 
   function getConverter() {
-    if (typeof OpenCC === 'undefined') {
-      throw new Error('OpenCC 库加载失败：请检查网络能否访问 cdn.jsdelivr.net');
-    }
     const key = $('#dir').value;
     if (!cache[key]) {
       const t2s = key === 't2s';
@@ -186,99 +495,97 @@
   }
 
   function updateStats() {
-    inStat.textContent  = fullInputText.length.toLocaleString() + ' 字';
-    outStat.textContent = fullOutputText.length.toLocaleString() + ' 字';
-  }
-
-  function convert() {
-    if (!fullInputText) {
-      fullOutputText = '';
-      output.value = '';
-      updateStats();
-      setStatus('');
-      return;
+    if (isEpubMode) {
+      inStat.textContent = 'EPUB 模式';
+      outStat.textContent = '已解析';
+    } else {
+      inStat.textContent  = fullInputText.length.toLocaleString() + ' 字';
+      outStat.textContent = (typeof fullOutputText === 'string' ? fullOutputText.length : 0).toLocaleString() + ' 字';
     }
-    
-    setStatus('正在转换中，请稍候…');
-    
-    setTimeout(() => {
-      try {
-        const t0 = performance.now();
-        fullOutputText = getConverter()(fullInputText);
-        output.value = getPreviewText(fullOutputText); 
-        updateStats();
-        const ms = Math.round(performance.now() - t0);
-        setStatus(`转换完成，耗时 ${ms} ms`);
-      } catch (e) {
-        setStatus(e.message || String(e), true);
-      }
-    }, 50);
   }
 
-  function scheduleConvert() {
+  function scheduleProcess() {
     updateStats();
     if (!$('#auto').checked) return;
     clearTimeout(timer);
-    timer = setTimeout(convert, input.value.length > 20000 ? 450 : 150);
+    timer = setTimeout(processText, input.value.length > 20000 ? 450 : 150);
   }
 
   input.addEventListener('input', () => {
     if (input.readOnly) return;
     fullInputText = input.value;
-    
     if (fullInputText.length > MAX_PREVIEW) {
       fullInputText = fullInputText.slice(0, MAX_PREVIEW);
       input.value = fullInputText;
-      setStatus(`⚠️ 手动粘贴超过 ${MAX_PREVIEW} 字已被截断。若有大文件，请使用“选择文件”导入。`, true);
+      setStatus(`⚠️ 手动粘贴超过 ${MAX_PREVIEW} 字已被截断。若有大文件，请使用“选择文件”。`, true);
     }
-    scheduleConvert();
+    scheduleProcess();
   });
 
-  function readFile(file) {
+  async function readFile(file) {
     if (!file) return;
-    setStatus('正在读取 ' + file.name + ' …');
     
-    let finalName = '默认.txt';
-    if (file.name && file.name.length > 5 && !file.name.includes('a968')) {
-      const dotIndex = file.name.lastIndexOf('.');
-      if (dotIndex > 0) {
-        const baseName = file.name.substring(0, dotIndex);
-        const ext = file.name.substring(dotIndex);
-        finalName = baseName + ext;
-      } else {
-        finalName = file.name + '.txt';
+    isEpubMode = false;
+    epubZipObj = null;
+    fullInputText = ''; fullOutputText = '';
+    input.value = ''; output.value = '';
+
+    if (file.name.toLowerCase().endsWith('.epub')) {
+      isEpubMode = true;
+      setStatus('正在解压 EPUB 文件…', false, true);
+      try {
+        epubZipObj = await JSZip.loadAsync(file);
+        filenameInput.value = file.name;
+        input.value = 'EPUB 文件已加载。包含的章节将在后台被逐一解析和转换。\n请点击“开始处理”或等待自动处理完成。';
+        input.readOnly = true;
+        updateStats();
+        if ($('#auto').checked) processText();
+        else setStatus('EPUB 读取成功，请点击处理', false, false);
+      } catch (err) {
+        console.error(err);
+        setStatus('EPUB 解压失败，请确保文件未损坏且为未加密的标准 EPUB。', true);
       }
     } else {
-      finalName = '默认_转换后.txt';
+      setStatus('正在读取 ' + file.name + ' …', false, true);
+      let finalName = 'tt.txt';
+      if (file.name && file.name.length > 2) finalName = file.name; 
+      filenameInput.value = finalName;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        fullInputText = String(reader.result || '');
+        input.value = getPreviewText(fullInputText);
+        if (fullInputText.length > MAX_PREVIEW) input.readOnly = true;
+        else input.readOnly = false;
+        
+        updateStats();
+        if ($('#auto').checked) processText();
+        else setStatus('文件已读取，请点击处理', false, false);
+      };
+      reader.onerror = () => setStatus('读取文件失败', true);
+      reader.readAsText(file, 'utf-8');
     }
-    
-    filenameInput.value = finalName;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      fullInputText = String(reader.result || '');
-      input.value = getPreviewText(fullInputText);
-      
-      if (fullInputText.length > MAX_PREVIEW) {
-        input.readOnly = true;
-      }
-
-      updateStats();
-      
-      if ($('#auto').checked) {
-        convert();
-      } else {
-        setStatus(`已载入文件 (共 ${fullInputText.length.toLocaleString()} 字)，准备就绪`);
-      }
-    };
-    reader.onerror = () => setStatus('读取文件失败', true);
-    reader.readAsText(file, 'utf-8');
   }
 
-  /* ---------- 事件绑定 ---------- */
+  toggleOptsBtn.addEventListener('click', () => {
+    optionsPanel.classList.toggle('active');
+    toggleOptsBtn.classList.toggle('active');
+  });
 
-  $('#dir').addEventListener('change', () => { if ($('#auto').checked) convert(); });
-  $('#convert').addEventListener('click', convert);
+  optionsPanel.querySelectorAll('input[type="checkbox"]').forEach(el => {
+    el.addEventListener('change', () => { if ($('#auto').checked) processText(); });
+  });
+  
+  optionsPanel.querySelectorAll('textarea, input[type="text"]').forEach(el => {
+    el.addEventListener('input', () => {
+      if (!$('#auto').checked) return;
+      clearTimeout(optTimer);
+      optTimer = setTimeout(processText, 500);
+    });
+  });
+
+  $('#dir').addEventListener('change', () => { if ($('#auto').checked) processText(); });
+  $('#convert').addEventListener('click', processText);
   $('#pick').addEventListener('click', () => $('#file').click());
   
   $('#file').addEventListener('change', e => {
@@ -287,72 +594,68 @@
   });
 
   $('#copy').addEventListener('click', () => {
-    if (!fullOutputText) { setStatus('没有可复制的内容'); return; }
-    const success = copyTextToClipboard(fullOutputText);
-    if (success) {
-      setStatus('完整内容已复制到剪贴板');
+    if (isEpubMode) { setStatus('EPUB 模式不支持复制全文，请直接下载', true); return; }
+    if (!fullOutputText) { setStatus('没有可复制的内容', true); return; }
+    if (copyTextToClipboard(fullOutputText)) setStatus('完整内容已复制到剪贴板');
+  });
+
+  // === 核心修改点：下载逻辑增加了对 EPUB 的提示与名复制 ===
+  $('#download').addEventListener('click', async () => {
+    if (!fullOutputText) { setStatus('没有可下载的内容', true); return; }
+    
+    let finalName = filenameInput.value.trim();
+    if (!finalName) finalName = isEpubMode ? 'new.epub' : 'tt.txt';
+
+    if (isEpubMode) {
+      if (!finalName.toLowerCase().endsWith('.epub')) finalName += '.epub';
+      
+      // 提取不带 .epub 的文件名用于复制
+      const nameForCopy = finalName.replace(/\.epub$/i, '');
+      if (copyTextToClipboard(nameForCopy)) {
+        alert(`【EPUB 下载提示】\n\n由于安卓系统的限制，下载 EPUB 时极大概率会被系统强行识别成 .zip 压缩包，并丢失原名。\n\n✅ 书名「${nameForCopy}」已自动复制！\n\n下载完成后，请在文件管理器中找到该文件：\n1. 长按重命名，粘贴书名；\n2. 把后缀从 .zip 改回 .epub 即可。`);
+      }
+
+      setStatus('正在生成 EPUB 文件…', false, true);
+      try {
+        // 显式指定 MIME 类型，部分浏览器可借此保留 .epub 后缀
+        const blob = await fullOutputText.generateAsync({ 
+            type: 'blob', 
+            compression: 'DEFLATE',
+            mimeType: 'application/epub+zip' 
+        });
+        triggerDownload(blob, finalName);
+        setStatus('EPUB 已准备就绪，开始下载');
+      } catch (e) {
+        console.error(e);
+        setStatus('生成 EPUB 失败：' + e.message, true);
+      }
     } else {
-      output.removeAttribute('readonly');
-      output.value = fullOutputText;
-      output.select();
-      document.execCommand('copy');
-      output.value = getPreviewText(fullOutputText);
-      output.setAttribute('readonly', '');
-      setStatus('完整内容已复制到剪贴板');
+      if (!finalName.toLowerCase().endsWith('.txt')) finalName += '.txt';
+      const nameForCopy = finalName.replace(/\.txt$/i, '');
+      if (copyTextToClipboard(nameForCopy)) {
+        alert(`【TXT 下载提示】\n\n文件名「${nameForCopy}」已自动复制！\n下载后若变乱码，请去文件管理器中重命名粘贴。`);
+      }
+      
+      const blob = new Blob([fullOutputText], { type: 'text/plain;charset=utf-8' });
+      triggerDownload(blob, finalName);
     }
   });
 
-  $('#download').addEventListener('click', () => {
-    if (!fullOutputText) { setStatus('没有可下载的内容'); return; }
-    
-    let finalName = filenameInput.value.trim() || 'tt.txt';
-    if (!finalName.toLowerCase().endsWith('.txt')) {
-        finalName += '.txt';
-        filenameInput.value = finalName;
-    }
-
-    // 提取不带 .txt 的主文件名，用于复制和提示
-    const nameForCopy = finalName.replace(/\.txt$/i, '');
-
-    // 复制不带后缀的名字，防止部分手机重命名时出现双后缀
-    const copied = copyTextToClipboard(nameForCopy);
-
-    if (copied) {
-      alert(`【下载提示】\n\n由于安卓系统的限制，下载大文件时浏览器必定会篡改文件名（变成乱码）。\n\n✅ 文件名「${nameForCopy}」已自动复制！\n\n下载完成后，请去文件管理器中找到该文件，长按重命名，直接粘贴即可（无需输入后缀名）。`);
-    } else {
-      alert(`【下载提示】\n\n由于安卓系统限制，下载大文件会变成乱码名。\n\n请记住您的目标文件名：${nameForCopy}\n下载完成后，请手动重命名。`);
-    }
-
-    const blob = new Blob([fullOutputText], { type: 'text/plain;charset=utf-8' });
+  function triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
-    
     const a = document.createElement('a');
-    a.href = url;
-    a.download = finalName; // 底层依然带 .txt 后缀确保文件类型
-    a.style.display = 'none';
-    
-    document.body.appendChild(a);
-    a.click();
-    
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 30000);
-  });
+    a.href = url; a.download = filename; 
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 30000);
+  }
 
   $('#clear').addEventListener('click', () => {
-    fullInputText = '';
-    fullOutputText = '';
-    input.value = '';
-    output.value = '';
-    input.readOnly = false;
-    filenameInput.value = 'tt.txt';
-    updateStats();
-    setStatus('');
-    input.focus();
+    fullInputText = ''; fullOutputText = ''; 
+    isEpubMode = false; epubZipObj = null;
+    input.value = ''; output.value = '';
+    input.readOnly = false; filenameInput.value = 'tt.txt';
+    updateStats(); setStatus(''); input.focus();
   });
-
-  /* ---------- 拖放文件 ---------- */
 
   let dragDepth = 0;
   document.addEventListener('dragenter', e => {
@@ -364,20 +667,25 @@
     if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragover'); }
   });
   document.addEventListener('drop', e => {
-    e.preventDefault();
-    dragDepth = 0;
-    document.body.classList.remove('dragover');
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragover');
     const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     if (f) readFile(f);
   });
 
-  /* ---------- 初始化 ---------- */
   updateStats();
-  if (typeof OpenCC === 'undefined') {
-    setStatus('OpenCC 库未加载成功，请检查网络后刷新页面。', true);
-  } else {
-    setStatus('准备就绪：支持大文件导入，界面仅预览前 1000 字。');
-  }
+
+  loadOpenCCLib((err) => {
+    if (err) {
+      setStatus(err.message, true, true);
+    } else {
+      isEngineReady = true;
+      if (input.value.trim() !== '') {
+        fullInputText = input.value;
+        if ($('#auto').checked) processText();
+      }
+    }
+  });
+
 })();
 </script>
 </body>
